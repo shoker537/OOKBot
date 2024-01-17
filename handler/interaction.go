@@ -201,11 +201,6 @@ func (h *InteractionHandler) createNewRoom(team data2.Team, user discordgo.User,
 		return
 	}
 
-	_, err = data2.NewEmbed().SetDescription("Приступим к голосованию!").Send(h.Discord, channel.ID)
-	if err != nil {
-		log.Println("Error sending message: " + err.Error())
-		return
-	}
 	// THE QUESTION MESSAGE
 	pollMessageEmbed := new(discordgo.MessageEmbed)
 	err = json.Unmarshal([]byte(poll.Json), pollMessageEmbed)
