@@ -2,6 +2,7 @@ package data
 
 import (
 	"log"
+	"reflect"
 	"strconv"
 	"time"
 )
@@ -46,6 +47,25 @@ func (cache *PollCache) AddOpenPoll(poll *OpenUserPoll) {
 	cache.OpenPolls = append(cache.OpenPolls, poll)
 }
 
+func (cache *PollCache) RemoveOpenPoll(poll *OpenUserPoll) {
+	index := -1
+	for i, openPoll := range cache.OpenPolls {
+		if reflect.DeepEqual(openPoll, poll) {
+			index = i
+			break
+		}
+	}
+	if index == -1 {
+		log.Println("Unable to delete open poll: no index found")
+		return
+	}
+	cache.OpenPolls = append(cache.OpenPolls[:index], cache.OpenPolls[index+1:]...)
+}
+
+func removeItemFromSlice(slice []interface{}, s int) []interface{} {
+	return append(slice[:s], slice[s+1:]...)
+}
+
 type Poll struct {
 	Id        uint16
 	Json      string
@@ -64,6 +84,7 @@ type OpenUserPoll struct {
 	UserId    string
 	ChannelId string
 	PollId    uint16
+	Team      Team
 	StartedAt time.Time
 	Choices   map[uint8]uint8
 }
