@@ -37,6 +37,58 @@ func (h *InteractionHandler) buttonMessageClicked(s *discordgo.Session, i *disco
 	case "vote_button":
 		h.onClickVote(s, i)
 		break
+	case "voting_save":
+		h.saveVote(s, i)
+		break
+	case "voting_cancel":
+		openPoll := h.PollCache.OpenPollByChannelId(i.Message.ChannelID)
+		if openPoll == nil {
+			log.Println("OpenPoll not found by channel " + i.Message.ChannelID)
+		} else {
+			h.PollCache.RemoveOpenPoll(openPoll)
+		}
+		_, err := s.ChannelDelete(i.ChannelID)
+		if err != nil {
+			log.Println("Unable to delete channel: " + err.Error())
+			break
+		}
+		break
+	}
+}
+func (h *InteractionHandler) saveVote(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	openPoll := h.PollCache.OpenPollByChannelId(i.Message.ChannelID)
+	if openPoll == nil {
+		log.Println("OpenPoll not found by channel " + i.Message.ChannelID)
+		return
+	}
+	_, err := h.MySQL.DB.Exec("DELETE FROM polls_votes WHERE team_id=? AND poll_id=?", openPoll.Team.Id, openPoll.PollId)
+	if err != nil {
+		log.Println("Error removing team votes: " + err.Error())
+		reactInteractionWithMessage(s, i, "Ошибка при обработке голосов. #1")
+		return
+	}
+	for _, value := range openPoll.Choices {
+		if value > 0 {
+			_, err := h.MySQL.DB.Exec("INSERT INTO polls_votes SET team_id=?, poll_id=?, vote=?", openPoll.Team.Id, openPoll.PollId, value)
+			if err != nil {
+				log.Println("Error adding team votes: " + err.Error())
+				reactInteractionWithMessage(s, i, "Ошибка при обработке голосов. #2")
+				return
+			}
+		}
+	}
+	reactInteractionWithSuccess(s, i) //todo: replace with message edit to disable all components
+	data2.NewEmbed().SetTitle("Ваши голоса приняты!").SetDescription("Спасибо, что приняли участие в голосовнии.\n \nКанал закроется <t:"+strconv.FormatInt(time.Now().Unix()+(6), 10)+":R>").SetColor(1862612).Send(s, openPoll.ChannelId)
+	h.PollCache.RemoveOpenPoll(openPoll)
+	go h.delChannelAfterVoting(openPoll.ChannelId)
+}
+
+func (h *InteractionHandler) delChannelAfterVoting(channelId string) {
+	time.Sleep(5 * time.Second)
+	_, err := h.Discord.ChannelDelete(channelId)
+	if err != nil {
+		log.Println("Error deleting channel: " + err.Error())
+		return
 	}
 }
 
@@ -52,67 +104,38 @@ func (h *InteractionHandler) onSelectOptionInVoting(customId string, s *discordg
 		return
 	}
 	value, err := strconv.Atoi(i.MessageComponentData().Values[0])
+
+	//TODO: check values for rules
+
 	openPoll.Choices[uint8(optionId)] = uint8(value)
-	err = s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredMessageUpdate,
-		Data: nil,
-	})
-	if err != nil {
-		log.Println("Error responding to interaction: " + err.Error())
-	}
+	reactInteractionWithSuccess(s, i)
 }
 
 func (h *InteractionHandler) onClickVote(s *discordgo.Session, i *discordgo.InteractionCreate) {
 	team := h.MySQL.TeamOf(i.Member.User.ID)
 	if team == nil {
-		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Команда отсутствует или отключена.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		if err != nil {
-			log.Println(err.Error())
-		}
+		reactInteractionWithMessage(s, i, "Команда отсутствует или отключена.")
+		log.Println("Team is null for user " + i.Member.User.ID)
 		return
 	}
 	clickedPoll := h.MySQL.PollByMessage(i.Message.ID)
 	if clickedPoll == nil {
-		err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-			Type: discordgo.InteractionResponseChannelMessageWithSource,
-			Data: &discordgo.InteractionResponseData{
-				Content: "Не найден опрос, соответствующий данному сообщению.",
-				Flags:   discordgo.MessageFlagsEphemeral,
-			},
-		})
-		if err != nil {
-			log.Println(err.Error())
-		}
+		reactInteractionWithMessage(s, i, "Не найден опрос, соответствующий данному сообщению.")
 		return
 	}
 	for _, openPoll := range h.PollCache.OpenPolls {
-		if openPoll.UserId == i.Member.User.ID && openPoll.PollId == clickedPoll.Id {
-			err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-				Type: discordgo.InteractionResponseChannelMessageWithSource,
-				Data: &discordgo.InteractionResponseData{
-					Content: "У вас уже открыт канал с заполнением бюллетеня.",
-					Flags:   discordgo.MessageFlagsEphemeral,
-				},
-			})
-			if err != nil {
-				log.Println(err.Error())
+		if openPoll.PollId == clickedPoll.Id {
+			if openPoll.UserId == i.Member.User.ID {
+				reactInteractionWithMessage(s, i, "У вас уже открыт канал с заполнением бюллетеня.")
+				return
 			}
-			return
+			if team.Id == openPoll.Team.Id {
+				reactInteractionWithMessage(s, i, "Кто-то из вашей команды уже заполняет этот бюллетень.")
+				return
+			}
 		}
 	}
-	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
-		Type: discordgo.InteractionResponseDeferredMessageUpdate,
-		Data: nil,
-	})
-	if err != nil {
-		log.Println(err.Error())
-	}
+	reactInteractionWithSuccess(s, i)
 	go h.createNewRoom(*team, *i.Member.User, clickedPoll)
 }
 
@@ -141,9 +164,10 @@ func (h *InteractionHandler) createNewRoom(team data2.Team, user discordgo.User,
 		PollId:    poll.Id,
 		StartedAt: time.Now(),
 		Choices:   make(map[uint8]uint8),
+		Team:      team,
 	})
 
-	// CHANNEL CRETED MESSAGE
+	// CHANNEL CREATED MESSAGE
 
 	embed := &discordgo.MessageEmbed{
 		Title: "Добро пожаловать в вашу кабинку для голосования!",
@@ -159,7 +183,8 @@ func (h *InteractionHandler) createNewRoom(team data2.Team, user discordgo.User,
 
 	_, err = h.Discord.ChannelMessageSendComplex(channel.ID, &messageSend)
 	if err != nil {
-		panic("Error sending message: " + err.Error())
+		log.Println("Error sending message: " + err.Error())
+		return
 	}
 	votes := data2.TeamVotesCount(h.Config, team)
 	sameVoices := 2
@@ -249,5 +274,26 @@ func (h *InteractionHandler) createNewRoom(team data2.Team, user discordgo.User,
 		log.Println("Error sending variants: " + err.Error())
 		return
 	}
+}
 
+func reactInteractionWithSuccess(s *discordgo.Session, i *discordgo.InteractionCreate) {
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseDeferredMessageUpdate,
+		Data: nil,
+	})
+	if err != nil {
+		log.Println("Error responding to interaction: " + err.Error())
+	}
+}
+func reactInteractionWithMessage(s *discordgo.Session, i *discordgo.InteractionCreate, message string) {
+	err := s.InteractionRespond(i.Interaction, &discordgo.InteractionResponse{
+		Type: discordgo.InteractionResponseChannelMessageWithSource,
+		Data: &discordgo.InteractionResponseData{
+			Content: message,
+			Flags:   discordgo.MessageFlagsEphemeral,
+		},
+	})
+	if err != nil {
+		log.Println(err.Error())
+	}
 }
