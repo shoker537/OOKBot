@@ -13,6 +13,7 @@ import (
 	"os/signal"
 	"strconv"
 	"syscall"
+	"time"
 )
 
 var mysqlData *data.MySQLData
@@ -29,9 +30,14 @@ func main() {
 	loadConfig()
 	loadDatabase()
 	connectDiscord()
+
+	go runTimedTick()
+
+	// wait for sigint
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
+	// on disable
 	ds.Close()
 }
 
@@ -161,4 +167,27 @@ func botReady(s *discordgo.Session) {
 	//if err != nil {
 	//	panic("Error sending message: " + err.Error())
 	//}
+}
+
+func runTimedTick() {
+	for {
+		time.Sleep(5 * time.Second)
+		timedTick()
+	}
+}
+
+func timedTick() {
+	pollsToDelete := make([]*data.OpenUserPoll, 0)
+	for _, poll := range pollCache.OpenPolls {
+		if time.Now().Unix()-poll.StartedAt.Unix() >= 1800 {
+			pollsToDelete = append(pollsToDelete, poll)
+		}
+	}
+	for _, poll := range pollsToDelete {
+		pollCache.RemoveOpenPoll(poll)
+		_, err := ds.ChannelDelete(poll.ChannelId)
+		if err != nil {
+			log.Println("Unable to automatically delete channel: " + err.Error())
+		}
+	}
 }
