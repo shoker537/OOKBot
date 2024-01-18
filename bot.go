@@ -38,6 +38,7 @@ func main() {
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 	// on disable
+	log.Println("Closing Discord connection...")
 	ds.Close()
 }
 
@@ -67,10 +68,7 @@ func loadDatabase() {
 }
 
 func connectDiscord() {
-	ds, err := discordgo.New("Bot " + config.BotToken)
-	if err != nil {
-		panic("Unable to connect to Discord")
-	}
+	ds = NewDiscordSession()
 	guild1, err := ds.Guild(config.GuildId)
 	if err != nil {
 		panic("Error finding guild: " + err.Error())
@@ -95,6 +93,16 @@ func connectDiscord() {
 		panic("Error opening session: " + err.Error())
 	}
 	log.Println("Connection to Discord created!")
+}
+
+func NewDiscordSession() *discordgo.Session {
+	ds, err := discordgo.New("Bot " + config.BotToken)
+	if err != nil {
+		log.Println("Unable to connect to Discord")
+		return nil
+	}
+	ds.ShouldReconnectOnError = true
+	return ds
 }
 
 func clearVotingCategory(s *discordgo.Session) {
@@ -144,7 +152,7 @@ func botReady(s *discordgo.Session) {
 	}
 	clearVotingCategory(s)
 
-	// todo: test embed
+	// test embed
 	//embed := &discordgo.MessageEmbed{
 	//	Title: "Test poll",
 	//}
@@ -179,9 +187,12 @@ func runTimedTick() {
 func timedTick() {
 	pollsToDelete := make([]*data.OpenUserPoll, 0)
 	for _, poll := range pollCache.OpenPolls {
-		if time.Now().Unix()-poll.StartedAt.Unix() >= 1800 {
+		if time.Now().Unix()-poll.StartedAt.Unix() >= 10 {
 			pollsToDelete = append(pollsToDelete, poll)
 		}
+	}
+	if len(pollsToDelete) == 0 {
+		return
 	}
 	for _, poll := range pollsToDelete {
 		pollCache.RemoveOpenPoll(poll)
