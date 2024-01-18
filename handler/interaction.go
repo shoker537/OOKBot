@@ -149,9 +149,26 @@ func (h *InteractionHandler) createNewRoom(team data2.Team, user discordgo.User,
 		return
 	}
 	data := discordgo.GuildChannelCreateData{
-		Name:     "бюллетень-" + (strings.Split(user.Username, "#")[0]),
+		Name:     "кабинка-" + (strings.Split(user.Username, "#")[0]),
 		Type:     discordgo.ChannelTypeGuildText,
 		ParentID: c.ID,
+		PermissionOverwrites: []*discordgo.PermissionOverwrite{
+			{
+				ID:   h.Config.EveryoneRole,
+				Type: discordgo.PermissionOverwriteTypeRole,
+				Deny: 1024,
+			},
+			{
+				ID:    user.ID,
+				Type:  discordgo.PermissionOverwriteTypeMember,
+				Allow: 1024,
+			},
+			{
+				ID:    h.Discord.State.User.ID,
+				Type:  discordgo.PermissionOverwriteTypeMember,
+				Allow: 1024,
+			},
+		},
 	}
 	channel, err := h.Discord.GuildChannelCreateComplex(h.Guild.ID, data)
 	if err != nil {
