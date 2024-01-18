@@ -7,6 +7,7 @@ type Config struct {
 	PollListChannelId string `json:"poll-list-channel-id"`
 	GuildId           string `json:"guild-id"`
 	Votes             map[string]uint8
+	EveryoneRole      string `json:"everyone-role"`
 }
 
 type MySQLConfig struct {
