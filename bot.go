@@ -106,7 +106,30 @@ func NewDiscordSession() *discordgo.Session {
 }
 
 func clearVotingCategory(s *discordgo.Session) {
-	channel, err := s.Channel(config.VotingCategoryId)
+	clearCategory(s, config.VotingCategoryId)
+}
+
+func clearMessagesInChannel(s *discordgo.Session, channelId string) {
+	for {
+		messages, err := s.ChannelMessages(channelId, 100, "", "", "")
+		if err != nil {
+			log.Println("Error reading messages of " + channelId + ": " + err.Error())
+			return
+		}
+		if len(messages) == 0 {
+			return
+		}
+		for _, message := range messages {
+			err = s.ChannelMessageDelete(channelId, message.ID)
+			if err != nil {
+				log.Println("Unable to delete message " + message.ID + ": " + err.Error())
+			}
+		}
+	}
+}
+
+func clearCategory(s *discordgo.Session, categoryId string) {
+	channel, err := s.Channel(categoryId)
 	if err != nil {
 		log.Println("Error getting voting category: " + err.Error())
 		return
@@ -151,30 +174,56 @@ func botReady(s *discordgo.Session) {
 		panic("Unable to get polls channel!")
 	}
 	clearVotingCategory(s)
+	clearMessagesInChannel(s, config.ManagePollsChannel)
+	setupManagePollsChannel(s)
+}
 
-	// test embed
-	//embed := &discordgo.MessageEmbed{
-	//	Title: "Test poll",
-	//}
-	//
-	//messageSend := discordgo.MessageSend{
-	//	Content: "Тут надо проголосовать",
-	//	Components: []discordgo.MessageComponent{
-	//		discordgo.ActionsRow{Components: []discordgo.MessageComponent{discordgo.Button{
-	//			Label:    "Проголосовать",
-	//			Style:    discordgo.PrimaryButton,
-	//			Disabled: false,
-	//			CustomID: "vote_button",
-	//		},
-	//		}},
-	//	},
-	//	Embed: embed,
-	//}
-	//
-	//_, err = s.ChannelMessageSendComplex(config.PollListChannelId, &messageSend)
-	//if err != nil {
-	//	panic("Error sending message: " + err.Error())
-	//}
+func setupManagePollsChannel(s *discordgo.Session) {
+	msgsend := discordgo.MessageSend{
+		Embed: data.NewEmbed().SetTitle("Управление ботом ООК").SetColor(1862612).MessageEmbed,
+		Components: []discordgo.MessageComponent{
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Label:    "Создать команду",
+						Style:    discordgo.SuccessButton,
+						CustomID: "manage_create-team",
+					},
+					discordgo.Button{
+						Label:    "Изменить команду",
+						Style:    discordgo.SecondaryButton,
+						CustomID: "manage_edit-team",
+					},
+					discordgo.Button{
+						Label:    "Удалить команду",
+						Style:    discordgo.DangerButton,
+						CustomID: "manage_delete-team",
+					},
+				},
+			},
+			discordgo.ActionsRow{
+				Components: []discordgo.MessageComponent{
+					discordgo.Button{
+						Label:    "Создать голосование",
+						Style:    discordgo.SuccessButton,
+						CustomID: "manage_create-poll",
+					},
+					discordgo.Button{
+						Label:    "Изменить голосование",
+						Style:    discordgo.SecondaryButton,
+						CustomID: "manage_edit-poll",
+					},
+					discordgo.Button{
+						Label:    "Удалить голосование",
+						Style:    discordgo.DangerButton,
+						CustomID: "manage_delete-poll",
+					},
+				},
+			},
+		},
+	}
+
+	s.ChannelMessageSendComplex(config.ManagePollsChannel, &msgsend)
 }
 
 func runTimedTick() {
@@ -187,7 +236,7 @@ func runTimedTick() {
 func timedTick() {
 	pollsToDelete := make([]*data.OpenUserPoll, 0)
 	for _, poll := range pollCache.OpenPolls {
-		if time.Now().Unix()-poll.StartedAt.Unix() >= 10 {
+		if time.Now().Unix()-poll.StartedAt.Unix() >= 1800 {
 			pollsToDelete = append(pollsToDelete, poll)
 		}
 	}

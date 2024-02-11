@@ -2,6 +2,7 @@ package data
 
 import (
 	config2 "OOKBot/config"
+	"github.com/bwmarrin/discordgo"
 	"github.com/jmoiron/sqlx"
 	"log"
 )
@@ -12,17 +13,20 @@ type MySQLData struct {
 	PollCache *PollCache
 }
 
-func (d MySQLData) TeamOf(userId string) *Team {
-	team := Team{}
-	err := d.DB.Get(&team, "SELECT * FROM teams WHERE id=(SELECT team_id FROM teams_members WHERE user_id=?) LIMIT 1", userId)
-	if err != nil {
-		log.Println("Error receiving user team from database:" + err.Error())
-		return nil
+func (d MySQLData) TeamOf(member discordgo.Member) *Team {
+	for _, role := range member.Roles {
+		team := Team{}
+		err := d.DB.Get(&team, "SELECT * FROM teams WHERE role_id=? LIMIT 1", role)
+		if err != nil {
+			log.Println("Error receiving user team from database:" + err.Error())
+			continue
+		}
+		if !team.Active {
+			continue
+		}
+		return &team
 	}
-	if !team.Active {
-		return nil
-	}
-	return &team
+	return nil
 }
 
 func (d MySQLData) PollByMessage(messageId string) *Poll {
@@ -37,7 +41,24 @@ func (d MySQLData) PollByMessage(messageId string) *Poll {
 		log.Println("Error receiving poll by message from database:" + err.Error())
 		return nil
 	}
-	d.PollCache.AddToCache(messageId, &poll)
+	poll.Options = d.GetPollAnswerOptions(poll.Id)
+	d.PollCache.AddToCache(&poll)
+	return &poll
+}
+func (d MySQLData) PollById(id uint16) *Poll {
+	for _, poll := range d.PollCache.Polls {
+		if poll.Id == id {
+			return poll
+		}
+	}
+	poll := Poll{}
+	err := d.DB.Get(&poll, "SELECT * FROM polls WHERE id=? LIMIT 1", id)
+	if err != nil {
+		log.Println("Error receiving poll by message from database:" + err.Error())
+		return nil
+	}
+	poll.Options = d.GetPollAnswerOptions(poll.Id)
+	d.PollCache.AddToCache(&poll)
 	return &poll
 }
 
